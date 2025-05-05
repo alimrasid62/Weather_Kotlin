@@ -15,6 +15,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
     }
 
     buildTypes {
@@ -50,4 +51,5 @@ dependencies {
     implementation(libs.converter.gson)
     implementation(libs.play.services.maps)
     implementation(libs.play.services.location)
+    implementation(libs.osmdroid.android)
 }

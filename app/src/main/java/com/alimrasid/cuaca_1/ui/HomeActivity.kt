@@ -1,5 +1,6 @@
 package com.alimrasid.cuaca_1.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.ImageView
 import android.widget.TextView
@@ -47,6 +48,11 @@ class HomeActivity : AppCompatActivity() {
         setCurrentDate()
 
         fetchWeather("semarang")
+
+        tvLocation.setOnClickListener{
+            val intent = Intent(this, SelectLocationActivity::class.java)
+            startActivity(intent)
+        }
     }
 
     private fun setCurrentDate() {
