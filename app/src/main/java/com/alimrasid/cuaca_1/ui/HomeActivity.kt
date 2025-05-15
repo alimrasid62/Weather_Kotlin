@@ -7,6 +7,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.content.ContextCompat.startActivity
 import com.alimrasid.cuaca_1.R
 import com.alimrasid.cuaca_1.api.RetrofitClient
 import com.alimrasid.cuaca_1.api.WeatherResponse
@@ -31,6 +32,10 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var tvHumidity: TextView
     private lateinit var imgWeather: ImageView
 
+
+    private var lastLat = -6.200000
+    private var lastLon = 106.816666
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_home)
@@ -51,7 +56,9 @@ class HomeActivity : AppCompatActivity() {
 
         tvLocation.setOnClickListener{
             val intent = Intent(this, SelectLocationActivity::class.java)
-            startActivity(intent)
+            intent.putExtra("initial_lat", lastLat)
+            intent.putExtra("initial_lon", lastLon)
+            startActivityForResult(intent, 1001)
         }
     }
 
@@ -73,7 +80,7 @@ class HomeActivity : AppCompatActivity() {
                     val windSpeed = weather?.windSpeed
 
                     // Set data ke TextView
-                    tvLocation.text = location.capitalize()
+                    tvLocation.text = location.replaceFirstChar { it.uppercaseChar() }
                     tvTemperature.text = "${temperature?.toInt() ?: 0}°"
                     tvHumidity.text = "${humidity?.toInt() ?: 0} %"
                     tvWind.text = "${windSpeed?.toInt() ?: 0} km/h"
@@ -114,4 +121,18 @@ class HomeActivity : AppCompatActivity() {
             }
         })
     }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == 1001 && resultCode == RESULT_OK) {
+            val location = data?.getStringExtra("selected_location") ?: "Jakarta"
+            lastLat = data?.getDoubleExtra("selected_lat", -6.2) ?: -6.2
+            lastLon = data?.getDoubleExtra("selected_lon", 106.8) ?: 106.8
+
+            tvLocation.text = location.replaceFirstChar { it.uppercaseChar() }
+            fetchWeather(location)
+        }
+    }
+
 }

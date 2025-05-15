@@ -1,21 +1,21 @@
 package com.alimrasid.cuaca_1.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.preference.PreferenceManager
-import android.webkit.WebView
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
-import android.widget.ImageButton
 import android.widget.Toast
-import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.alimrasid.cuaca_1.R
 import com.alimrasid.cuaca_1.api.CustomInfoWindow
 import com.alimrasid.cuaca_1.api.ModelMain
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.SupportMapFragment
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 import org.osmdroid.config.Configuration
@@ -27,116 +27,115 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.OverlayItem
 import java.io.IOException
+import java.net.URL
 import java.nio.charset.StandardCharsets
 
 class SelectLocationActivity : AppCompatActivity() {
 
-    lateinit var mapView: MapView
-    lateinit var marker: Marker
-
-    var modelMainList: MutableList<ModelMain> = ArrayList()
-    lateinit var mapController: MapController
-    lateinit var overlayItem: ArrayList<OverlayItem>
+    private lateinit var map: MapView
+    private var currentMarker: Marker? = null
+    private lateinit var searchInput: EditText
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        mapView = findViewById(R.id.mapView)
+        Configuration.getInstance().load(applicationContext, getSharedPreferences("osmdroid", MODE_PRIVATE))
+        Configuration.getInstance().userAgentValue = packageName
 
-        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
+        setContentView(R.layout.activity_select_location)
 
-        val geoPoint = GeoPoint(-6.3035467, 106.8693513)
-        mapView.setMultiTouchControls(true)
-        mapView.controller.animateTo(geoPoint)
-        mapView.setTileSource(TileSourceFactory.DEFAULT_TILE_SOURCE)
-        mapView.zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+        map = findViewById(R.id.map)
+        map.setTileSource(TileSourceFactory.MAPNIK)
+        map.setBuiltInZoomControls(true)
+        map.setMultiTouchControls(true)
 
-        mapController = mapView.controller as MapController
-        mapController.setCenter(geoPoint)
-        mapController.zoomTo(15)
+        searchInput = findViewById(R.id.search_input)
 
-        getLocationMarker()
-    }
-    private fun getLocationMarker() {
-        try {
-            val stream = assets.open("sample_maps.json")
-            val size = stream.available()
-            val buffer = ByteArray(size)
-            stream.read(buffer)
-            stream.close()
-            val strContent = String(buffer, StandardCharsets.UTF_8)
-            try {
-                val jsonObject = JSONObject(strContent)
-                val jsonArrayResult = jsonObject.getJSONArray("results")
-                for (i in 0 until jsonArrayResult.length()) {
-                    val jsonObjectResult = jsonArrayResult.getJSONObject(i)
-                    val modelMain = ModelMain()
-                    modelMain.strName = jsonObjectResult.getString("name")
-                    modelMain.strVicinity = jsonObjectResult.getString("vicinity")
+        val startPoint = GeoPoint(-6.200000, 106.816666)
+        val mapController = map.controller
+        mapController.setZoom(12.0)
+        mapController.setCenter(startPoint)
 
-                    //get lat long
-                    val jsonObjectGeo = jsonObjectResult.getJSONObject("geometry")
-                    val jsonObjectLoc = jsonObjectGeo.getJSONObject("location")
-                    modelMain.latLoc = jsonObjectLoc.getDouble("lat")
-                    modelMain.longLoc = jsonObjectLoc.getDouble("lng")
-                    modelMainList.add(modelMain)
+        val marker = Marker(map)
+        marker.position = startPoint
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        marker.title = "Jakarta"
+        map.overlays.add(marker)
+
+        searchInput.setOnEditorActionListener { v, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || event?.keyCode == KeyEvent.KEYCODE_ENTER) {
+                val query = searchInput.text.toString()
+                if (query.isNotBlank()) {
+                    searchLocation(query)
                 }
-                initMarker(modelMainList)
-            } catch (e: JSONException) {
-                e.printStackTrace()
-            }
-        } catch (ignored: IOException) {
-            Toast.makeText(
-                this,
-                "Oops, ada yang tidak beres. Coba ulangi beberapa saat lagi.",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-    }
 
-    private fun initMarker(modelList: List<ModelMain>) {
-        for (i in modelList.indices) {
-            overlayItem = ArrayList()
-            overlayItem.add(
-                OverlayItem(
-                    modelList[i].strName, modelList[i].strVicinity, GeoPoint(
-                        modelList[i].latLoc, modelList[i].longLoc
-                    )
-                )
-            )
-            val info = ModelMain()
-            info.strName = modelList[i].strName
-            info.strVicinity = modelList[i].strVicinity
+                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
 
-            val marker = Marker(mapView)
-            marker.icon = resources.getDrawable(R.drawable.ic_place)
-            marker.position = GeoPoint(modelList[i].latLoc, modelList[i].longLoc)
-            marker.relatedObject = info
-            marker.infoWindow = CustomInfoWindow(mapView)
-            marker.setOnMarkerClickListener { item, arg1 ->
-                item.showInfoWindow()
                 true
+            } else {
+                false
             }
+        }
 
-            mapView.overlays.add(marker)
-            mapView.invalidate()
+    }
+
+    private fun searchLocation(query: String) {
+        coroutineScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    val url = "https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1"
+                    URL(url).readText()
+                }
+
+                val jsonArray = JSONObject("{\"results\":$response}").getJSONArray("results")
+                if (jsonArray.length() > 0) {
+                    val obj = jsonArray.getJSONObject(0)
+                    val lat = obj.getDouble("lat")
+                    val lon = obj.getDouble("lon")
+                    val geoPoint = GeoPoint(lat, lon)
+
+                    map.controller.setZoom(15.0)
+                    map.controller.setCenter(geoPoint)
+                    map.controller.animateTo(geoPoint)
+
+                    currentMarker?.let {
+                        map.overlays.remove(it)
+                    }
+
+                    val marker = Marker(map)
+                    marker.position = geoPoint
+                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    marker.title = query
+                    map.overlays.clear()
+                    map.overlays.add(marker)
+                    map.invalidate()
+
+                    val resultIntent = Intent()
+                    resultIntent.putExtra("selected_location", query)
+                    setResult(RESULT_OK, resultIntent)
+                    finish()
+
+                    map.invalidate()
+
+
+                } else {
+                    Toast.makeText(this@SelectLocationActivity, "Lokasi tidak ditemukan", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this@SelectLocationActivity, "Gagal mencari lokasi", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-    public override fun onResume() {
+    override fun onResume() {
         super.onResume()
-        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
-        if (mapView != null) {
-            mapView.onResume()
-        }
+        map.onResume()
     }
 
-    public override fun onPause() {
+    override fun onPause() {
         super.onPause()
-        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
-        if (mapView != null) {
-            mapView.onPause()
-        }
+        map.onPause()
     }
-
 }
